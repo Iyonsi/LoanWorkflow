@@ -1,0 +1,33 @@
+[
+  {
+    "name": "init_variables",
+    "retryCount": 3,
+    "timeoutSeconds": 30,
+    "retryDelaySeconds": 2,
+    "ownerEmail": "team@example.com"
+  },
+  {
+    "name": "fetch_decision",
+    "retryCount": 0,
+    "timeoutSeconds": 0,
+    "ownerEmail": "team@example.com"
+  },
+  {
+    "name": "advance_pointer",
+    "retryCount": 3,
+    "timeoutSeconds": 60,
+    "ownerEmail": "team@example.com"
+  },
+  {
+    "name": "handle_rejection",
+    "retryCount": 3,
+    "timeoutSeconds": 60,
+    "ownerEmail": "team@example.com"
+  },
+  {
+    "name": "create_loan",
+    "retryCount": 3,
+    "timeoutSeconds": 120,
+    "ownerEmail": "team@example.com"
+  }
+]

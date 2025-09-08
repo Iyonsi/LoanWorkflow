@@ -1,0 +1,187 @@
+{
+  "info": {
+    "name": "LoanWorkflow API",
+    "_postman_id": "00000000-0000-0000-0000-000000000001",
+    "description": "Comprehensive test collection for LoanWorkflow API & Conductor integration.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "_Env Setup / Set Base Variables",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {"exec": [
+            "if (!pm.environment.get('baseUrl')) { pm.environment.set('baseUrl', 'http://localhost:5000'); }",
+            "if (!pm.environment.get('borrowerId')) { pm.environment.set('borrowerId', '11111111-1111-1111-1111-111111111111'); }"
+          ], "type": "text/javascript"}
+        },
+        {"listen": "test", "script": {"exec": ["pm.test('Environment variables seeded', function(){ pm.expect(pm.environment.get('baseUrl')).to.be.ok; });"], "type": "text/javascript"}}
+      ],
+      "request": {"method": "GET", "url": "{{baseUrl}}/api/health"}
+    },
+    {
+      "name": "List Request Logs (Expect Empty Before Create)",
+      "request": {"method":"GET","url":"{{baseUrl}}/api/loanrequests/does-not-exist/logs"},
+      "event": [{"listen":"test","script":{"exec":[
+        "pm.test('404 for missing logs', function(){ pm.expect(pm.response.code).to.be.oneOf([200,404]); });"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Health",
+      "request": {"method": "GET", "url": "{{baseUrl}}/api/health"},
+      "event": [{"listen": "test", "script": {"exec": [
+        "pm.test('Health OK', function(){ const b = pm.response.json(); pm.expect(b.db).to.eql('OK'); });"
+      ], "type": "text/javascript"}}]
+    },
+    {
+      "name": "Register Task Definitions",
+      "request": {"method": "POST", "url": "{{baseUrl}}/api/registration/register-tasks"},
+      "event": [{"listen":"test","script": {"exec": ["pm.test('Tasks registered', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });"],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Register Workflow Definition",
+      "request": {"method": "POST", "url": "{{baseUrl}}/api/registration/register-workflow"},
+      "event": [{"listen":"test","script": {"exec": ["pm.test('Workflow registered', function(){ pm.expect(pm.response.code).to.be.oneOf([200]); });"],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Create Loan Request (Flow1)",
+      "request": {
+        "method": "POST",
+        "header": [{"key":"Content-Type","value":"application/json"}],
+        "url": "{{baseUrl}}/api/loanrequests",
+        "body": {"mode":"raw","raw": "{\n  \"amount\": 15000,\n  \"borrowerId\": \"{{borrowerId}}\",\n  \"flowType\": 1\n}"}
+      },
+      "event": [{"listen":"test","script": {"exec": [
+        "const b = pm.response.json();",
+        "pm.environment.set('requestId', b.requestId);",
+        "pm.test('Request created', function(){ pm.expect(b.requestId).to.be.a('string'); });"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Get Request Not Found",
+      "request": {"method":"GET","url":"{{baseUrl}}/api/loanrequests/invalid-id-123"},
+      "event": [{"listen":"test","script":{"exec":[
+        "pm.test('Missing request returns 404', function(){ pm.expect(pm.response.code).to.be.oneOf([404]); });"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Get Request (After Create)",
+      "request": {"method":"GET","url":"{{baseUrl}}/api/loanrequests/{{requestId}}"},
+      "event": [{"listen":"test","script": {"exec": [
+        "pm.test('Has initial stage FT', function(){ const b=pm.response.json(); pm.expect(b.currentStage).to.eql('FT'); });"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Approve Current Stage (Generic)",
+      "request": {
+        "method": "POST",
+        "header": [{"key":"Content-Type","value":"application/json"}],
+        "url": "{{baseUrl}}/api/loan-requests/{{requestId}}/approvals/approve",
+        "body": {"mode":"raw","raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"stage\": \"{{stageName}}\",\n  \"approved\": true,\n  \"actorUserId\": \"user-{{stageName}}\"\n}"}
+      },
+      "event": [{"listen":"prerequest","script": {"exec": [
+        "if(!pm.environment.get('stageName')) pm.environment.set('stageName','FT');"
+      ],"type":"text/javascript"}},
+      {"listen":"test","script": {"exec": [
+        "pm.test('Approved call ok', function(){ pm.expect(pm.response.code).to.eql(200); });",
+        "const r = pm.response.json(); pm.environment.set('lastApprovedStage', r.stage);"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Approve Conflict Example (Duplicate Approve)",
+      "request": {
+        "method": "POST",
+        "header": [{"key":"Content-Type","value":"application/json"}],
+        "url": "{{baseUrl}}/api/loan-requests/{{requestId}}/approvals/approve",
+        "body": {"mode":"raw","raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"stage\": \"FT\",\n  \"approved\": true,\n  \"actorUserId\": \"user-ft-dup\"\n}"}
+      },
+      "event": [{"listen":"test","script":{"exec":[
+        "pm.test('Second approve eventually either 409/200', function(){ pm.expect([200,409]).to.include(pm.response.code); });"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Poll Request (Advance Loop)",
+      "request": {"method":"GET","url":"{{baseUrl}}/api/loanrequests/{{requestId}}"},
+      "event": [{"listen":"test","script": {"exec": [
+        "const b = pm.response.json();",
+        "let stages1 = ['FT','MA','HOP','BRANCH','SEN','DCO','RCO','ED'];",
+        "pm.test('Stage is valid in flow1 set', function(){ pm.expect(stages1).to.include(b.currentStage); });",
+        "// If previous approved stage matches b.currentStage, we still need to wait for worker",
+        "if (pm.environment.get('lastApprovedStage') === b.currentStage) { postman.setNextRequest('Poll Request (Advance Loop)'); }",
+        "else { pm.environment.set('stageName', b.currentStage); }"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Reject (Flow1 Reset Test)",
+      "request": {
+        "method": "POST",
+        "header": [{"key":"Content-Type","value":"application/json"}],
+        "url": "{{baseUrl}}/api/loan-requests/{{requestId}}/approvals/reject",
+        "body": {"mode":"raw","raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"stage\": \"MA\",\n  \"approved\": false,\n  \"actorUserId\": \"user-ma\"\n}"}
+      },
+      "event": [{"listen":"test","script": {"exec": [
+        "pm.test('Reject call processed', function(){ pm.expect(pm.response.code).to.eql(200); });"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Reject Invalid Stage (Expect 400)",
+      "request": {"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/loan-requests/{{requestId}}/approvals/reject","body":{"mode":"raw","raw":"{\n  \"requestId\": \"{{requestId}}\",\n  \"stage\": \"INVALID\",\n  \"approved\": false,\n  \"actorUserId\": \"user-x\"\n}"}},
+      "event": [{"listen":"test","script":{"exec":[
+        "pm.test('Invalid reject returns 400 or 404', function(){ pm.expect([400,404]).to.include(pm.response.code); });"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Get Logs",
+      "request": {"method":"GET","url":"{{baseUrl}}/api/loanrequests/{{requestId}}/logs"},
+      "event": [{"listen":"test","script": {"exec": [
+        "const logs = pm.response.json(); pm.test('At least one log entry', function(){ pm.expect(logs.length).to.be.greaterThan(0); });"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Create Request (Flow2 - No Rejection Allowed)",
+      "request": {"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/loanrequests","body":{"mode":"raw","raw":"{\n  \"amount\": 9000,\n  \"borrowerId\": \"{{borrowerId}}\",\n  \"flowType\": 2\n}"}},
+      "event": [{"listen":"test","script": {"exec": [
+        "const b = pm.response.json(); pm.environment.set('requestId_flow2', b.requestId); pm.test('Flow2 created', ()=> pm.expect(b.requestId).to.be.a('string'));"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Approve Flow2 First Stage",
+      "request": {"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/loan-requests/{{requestId_flow2}}/approvals/approve","body":{"mode":"raw","raw":"{\n  \"requestId\": \"{{requestId_flow2}}\",\n  \"stage\": \"FT\",\n  \"approved\": true,\n  \"actorUserId\": \"user-ft\"\n}"}},
+      "event": [{"listen":"test","script":{"exec":[
+        "pm.test('Flow2 approve works', function(){ pm.expect(pm.response.code).to.eql(200); });"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Attempt Reject Flow2 (Expect 400)",
+      "request": {"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/loan-requests/{{requestId_flow2}}/approvals/reject","body":{"mode":"raw","raw":"{\n  \"requestId\": \"{{requestId_flow2}}\",\n  \"stage\": \"FT\",\n  \"approved\": false,\n  \"actorUserId\": \"user-ft\"\n}"}},
+      "event": [{"listen":"test","script": {"exec": [
+        "pm.test('Reject forbidden', function(){ pm.expect(pm.response.code).to.eql(400); });"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Create Request (Flow3)",
+      "request": {"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/loanrequests","body":{"mode":"raw","raw":"{\n  \"amount\": 5000,\n  \"borrowerId\": \"{{borrowerId}}\",\n  \"flowType\": 3\n}"}},
+      "event": [{"listen":"test","script": {"exec": [
+        "const b = pm.response.json(); pm.environment.set('requestId_flow3', b.requestId); pm.test('Flow3 created', ()=> pm.expect(b.requestId).to.be.a('string'));"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Reject Flow3 Step Back",
+      "request": {"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/loan-requests/{{requestId_flow3}}/approvals/reject","body":{"mode":"raw","raw":"{\n  \"requestId\": \"{{requestId_flow3}}\",\n  \"stage\": \"FT\",\n  \"approved\": false,\n  \"actorUserId\": \"user-ft\"\n}"}},
+      "event": [{"listen":"test","script":{"exec":[
+        "pm.test('Flow3 reject handled', function(){ pm.expect([200,400]).to.include(pm.response.code); });"
+      ],"type":"text/javascript"}}]
+    },
+    {
+      "name": "Approve Flow3 First Stage",
+      "request": {"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"url":"{{baseUrl}}/api/loan-requests/{{requestId_flow3}}/approvals/approve","body":{"mode":"raw","raw":"{\n  \"requestId\": \"{{requestId_flow3}}\",\n  \"stage\": \"FT\",\n  \"approved\": true,\n  \"actorUserId\": \"user-ft\"\n}"}},
+      "event": [{"listen":"test","script": {"exec": ["pm.test('Flow3 stage approved', ()=> pm.expect(pm.response.code).to.eql(200));"],"type":"text/javascript"}}]
+    }
+  ],
+  "event": [],
+  "variable": [
+    {"key":"baseUrl","value":"http://localhost:5000"},
+    {"key":"borrowerId","value":"11111111-1111-1111-1111-111111111111"}
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "name": "loan_dynamic_workflow",
+  "description": "Dynamic loan approval workflow for flows 1,2,3",
+  "version": 1,
+  "schemaVersion": 2,
+  "ownerEmail": "team@example.com",
+  "tasks": [
+    {
+      "name": "init_variables",
+      "taskReferenceName": "init_vars",
+      "type": "SIMPLE",
+      "inputParameters": {}
+    },
+    {
+      "type": "DO_WHILE",
+      "taskReferenceName": "approval_loop",
+      "loopCondition": "if ( $.stageIndex < $.stages.length ) { true; } else { false; }",
+      "inputParameters": {},
+      "loopOver": [
+        {
+          "name": "wait_for_decision",
+            "taskReferenceName": "wait_decision",
+            "type": "WAIT"
+        },
+        {
+          "name": "fetch_decision",
+          "taskReferenceName": "fetch_decision",
+          "type": "SIMPLE"
+        },
+        {
+          "type": "DECISION",
+          "name": "route_decision",
+          "taskReferenceName": "route_decision",
+          "inputParameters": {
+            "approved": "${fetch_decision.output.approved}",
+            "flowType": "${workflow.input.flowType}"
+          },
+          "caseValueParam": "approved",
+          "decisionCases": {
+            "true": [
+              {"name": "advance_pointer", "taskReferenceName": "advance_pointer", "type": "SIMPLE"}
+            ]
+          },
+          "defaultCase": [
+            {"name": "handle_rejection", "taskReferenceName": "handle_rejection", "type": "SIMPLE"}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "create_loan",
+      "taskReferenceName": "create_loan",
+      "type": "SIMPLE",
+      "optional": true,
+      "inputParameters": {}
+    }
+  ],
+  "outputParameters": {
+    "finalStatus": "${create_loan.output.status}"
+  },
+  "timeoutSeconds": 0
+}
