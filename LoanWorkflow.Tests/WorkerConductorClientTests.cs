@@ -29,8 +29,9 @@ public class WorkerConductorClientTests
         var handler = new FakeHandler2();
         var pollObj = new TaskPollResult("t1","fetch_decision", new Dictionary<string,object>{{"requestId","R1"}}, "wf1", 0);
         handler.Enqueue(new HttpResponseMessage(HttpStatusCode.OK){ Content = new StringContent(JsonSerializer.Serialize(pollObj))});
-        var http = new HttpClient(handler){ BaseAddress = new Uri("http://local/") };
-        var cfg = new ConfigurationBuilder().AddInMemoryCollection().Build();
+    var http = new HttpClient(handler){ BaseAddress = new Uri("http://local/") };
+    var inMem = new Dictionary<string,string?>{ {"Conductor:BaseUrl", "http://local" } };
+    var cfg = new ConfigurationBuilder().AddInMemoryCollection(inMem!).Build();
         var client = new ConductorClient(http, cfg);
         var polled = await client.PollAsync("fetch_decision","w1");
         Assert.That(polled, Is.Not.Null);

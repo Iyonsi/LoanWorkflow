@@ -17,5 +17,7 @@ public class GenericRepository<T> : IRepository<T> where T : BaseEntity
         await _set.AddAsync(entity);
         // Defer SaveChanges to UnitOfWork
     }
+
+    public IQueryable<T> Query() => _set.AsQueryable();
 }
 

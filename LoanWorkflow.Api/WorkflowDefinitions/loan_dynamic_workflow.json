@@ -31,9 +31,9 @@
           "type": "DECISION",
           "name": "route_decision",
           "taskReferenceName": "route_decision",
-          "inputParameters": {
+            "inputParameters": {
             "approved": "${fetch_decision.output.approved}",
-            "flowType": "${workflow.input.flowType}"
+            "loanType": "${workflow.input.loanType}"
           },
           "caseValueParam": "approved",
           "decisionCases": {

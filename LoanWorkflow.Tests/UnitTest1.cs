@@ -7,6 +7,7 @@ using LoanWorkflow.Api.Repositories;
 using LoanWorkflow.Shared.DTOs;
 using LoanWorkflow.Shared.Domain;
 using LoanWorkflow.Api.Conductor;
+using Microsoft.Extensions.Configuration;
 
 namespace LoanWorkflow.Tests;
 
@@ -33,21 +34,22 @@ public class LoanRequestServiceTests
         _uow.Setup(x => x.SaveChangesAsync(default)).ReturnsAsync(1);
         _workflow.Setup(w => w.StartWorkflowAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<object>()))
             .ReturnsAsync("wf123");
-    _svc = new LoanRequestService(_uow.Object, _workflow.Object, _logger.Object);
+        var inMemorySettings = new Dictionary<string,string?> { { "Conductor:Enabled", "false" } };
+        var cfg = new ConfigurationBuilder().AddInMemoryCollection(inMemorySettings!).Build();
+    _svc = new LoanRequestService(_uow.Object, _workflow.Object, _logger.Object, cfg);
     }
 
     [Test]
     public async Task CreateAsync_SetsInitialStage_AndStartsWorkflow()
     {
-        var dto = new CreateLoanRequestDto { Amount = 1000m, BorrowerId = Guid.NewGuid().ToString(), FlowType = 1 };
+    var dto = new CreateLoanRequestDto { Amount = 1000m, BorrowerId = Guid.NewGuid().ToString(), FullName = "Tester", IsEligible = true };
         _loanRepo.Setup(r => r.InsertAsync(It.IsAny<LoanRequest>()))
             .Returns(Task.CompletedTask);
         _logRepo.Setup(l => l.InsertAsync(It.IsAny<LoanRequestLog>())).Returns(Task.CompletedTask);
 
-        var (req, wfId) = await _svc.CreateAsync(dto);
-
+    var (req, wfId) = await _svc.CreateAsync(dto, "standard");
     Assert.That(req, Is.Not.Null);
-        Assert.That(req.FlowType, Is.EqualTo(1));
+    Assert.That(req.LoanType, Is.EqualTo("standard"));
         Assert.That(req.StageIndex, Is.EqualTo(0));
         Assert.That(req.CurrentStage, Is.EqualTo("FT"));
         Assert.That(wfId, Is.EqualTo("wf123"));
@@ -58,14 +60,14 @@ public class LoanRequestServiceTests
     [Test]
     public void CreateAsync_InvalidFlow_Throws()
     {
-        var dto = new CreateLoanRequestDto { Amount = 10m, BorrowerId = Guid.NewGuid().ToString(), FlowType = 99 };
-        Assert.ThrowsAsync<ArgumentException>(() => _svc.CreateAsync(dto));
+    var dto = new CreateLoanRequestDto { Amount = 10m, BorrowerId = Guid.NewGuid().ToString(), FullName = "Bad", IsEligible = false };
+    Assert.ThrowsAsync<ArgumentException>(() => _svc.CreateAsync(dto, "invalid_type"));
     }
 
     [Test]
     public async Task ApproveAsync_FirstApproval_WritesLog()
     {
-        var req = new LoanRequest { FlowType = 1, Amount = 10, BorrowerId = Guid.NewGuid().ToString(), StageIndex = 0, CurrentStage = "FT", Status = LoanRequestStatus.InProgress };
+    var req = new LoanRequest { LoanType = "standard", Amount = 10, BorrowerId = Guid.NewGuid().ToString(), StageIndex = 0, CurrentStage = "FT", Status = LoanRequestStatus.InProgress };
         _loanRepo.Setup(r => r.GetByIdAsync(It.IsAny<string>())).ReturnsAsync(req);
         _logRepo.Setup(l => l.CountStageDecisionAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(0);
         _logRepo.Setup(l => l.InsertAsync(It.IsAny<LoanRequestLog>())).Returns(Task.CompletedTask);
@@ -77,7 +79,7 @@ public class LoanRequestServiceTests
     [Test]
     public void ApproveAsync_Duplicate_Throws()
     {
-        var req = new LoanRequest { FlowType = 1, Amount = 10, BorrowerId = Guid.NewGuid().ToString(), StageIndex = 0, CurrentStage = "FT", Status = LoanRequestStatus.InProgress };
+    var req = new LoanRequest { LoanType = "standard", Amount = 10, BorrowerId = Guid.NewGuid().ToString(), StageIndex = 0, CurrentStage = "FT", Status = LoanRequestStatus.InProgress };
         _loanRepo.Setup(r => r.GetByIdAsync(It.IsAny<string>())).ReturnsAsync(req);
         _logRepo.Setup(l => l.CountStageDecisionAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(1);
         Assert.ThrowsAsync<InvalidOperationException>(() => _svc.ApproveAsync(req.Id, new DecisionDto{ ActorUserId = Guid.NewGuid().ToString(), Approved = true, Stage = "FT", RequestId = req.Id }));
@@ -86,7 +88,7 @@ public class LoanRequestServiceTests
     [Test]
     public async Task RejectAsync_Flow3_RecordsLog()
     {
-        var req = new LoanRequest { FlowType = 3, Amount = 10, BorrowerId = Guid.NewGuid().ToString(), StageIndex = 1, CurrentStage = "HOP", Status = LoanRequestStatus.InProgress };
+    var req = new LoanRequest { LoanType = "flex_review", Amount = 10, BorrowerId = Guid.NewGuid().ToString(), StageIndex = 1, CurrentStage = "HOP", Status = LoanRequestStatus.InProgress };
         _loanRepo.Setup(r => r.GetByIdAsync(It.IsAny<string>())).ReturnsAsync(req);
         _logRepo.Setup(l => l.CountStageDecisionAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(0);
         _logRepo.Setup(l => l.InsertAsync(It.IsAny<LoanRequestLog>())).Returns(Task.CompletedTask);
@@ -98,7 +100,7 @@ public class LoanRequestServiceTests
     [Test]
     public void RejectAsync_Flow2_Throws()
     {
-        var req = new LoanRequest { FlowType = 2, Amount = 10, BorrowerId = Guid.NewGuid().ToString(), StageIndex = 2, CurrentStage = "BRANCH", Status = LoanRequestStatus.InProgress };
+    var req = new LoanRequest { LoanType = "multi_stage", Amount = 10, BorrowerId = Guid.NewGuid().ToString(), StageIndex = 2, CurrentStage = "BRANCH", Status = LoanRequestStatus.InProgress };
         _loanRepo.Setup(r => r.GetByIdAsync(It.IsAny<string>())).ReturnsAsync(req);
         Assert.ThrowsAsync<InvalidOperationException>(() => _svc.RejectAsync(req.Id, new DecisionDto{ ActorUserId = Guid.NewGuid().ToString(), Approved = false, Stage = "BRANCH", RequestId = req.Id }));
     }

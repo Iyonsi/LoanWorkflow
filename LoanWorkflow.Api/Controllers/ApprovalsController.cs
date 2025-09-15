@@ -1,6 +1,9 @@
 using LoanWorkflow.Shared.DTOs;
 using Microsoft.AspNetCore.Mvc;
 using LoanWorkflow.Api.Services;
+using LoanWorkflow.Api.Features.Common;
+using LoanWorkflow.Api.Features.Constants;
+using LoanWorkflow.Api.Services.ApplicationServices;
 
 namespace LoanWorkflow.Api.Controllers;
 
@@ -8,32 +11,45 @@ namespace LoanWorkflow.Api.Controllers;
 [Route("api/loan-requests/{requestId}/[controller]")]
 public class ApprovalsController : ControllerBase
 {
-    private readonly ILoanRequestService _service;
-    public ApprovalsController(ILoanRequestService service){ _service = service; }
+    private readonly IApprovalApplicationService _appService;
+    public ApprovalsController(IApprovalApplicationService appService){ _appService = appService; }
 
     [HttpPost("approve")] 
     public async Task<IActionResult> Approve(string requestId, [FromBody] DecisionDto dto)
     {
-        if(!ModelState.IsValid) return ValidationProblem(ModelState);
-        try
+        var traceId = HttpContext.TraceIdentifier;
+        if(!ModelState.IsValid)
         {
-            var result = await _service.ApproveAsync(requestId, dto);
-            return Ok(new { requestId, stage = result.Stage, approved = result.Approved });
+            var respInvalid = ApiResponse<object>.Validation("Invalid payload", ModelState.Values.SelectMany(v=>v.Errors).Select(e=>e.ErrorMessage), traceId);
+            return BadRequest(respInvalid);
         }
-        catch (KeyNotFoundException){ return NotFound(); }
-        catch (InvalidOperationException ex){ return Conflict(ex.Message); }
+        var response = await _appService.ApproveAsync(requestId, dto, traceId);
+        return MapResponse(response);
     }
 
     [HttpPost("reject")] 
     public async Task<IActionResult> Reject(string requestId, [FromBody] DecisionDto dto)
     {
-        if(!ModelState.IsValid) return ValidationProblem(ModelState);
-        try
+        var traceId = HttpContext.TraceIdentifier;
+        if(!ModelState.IsValid)
         {
-            var result = await _service.RejectAsync(requestId, dto);
-            return Ok(new { requestId, stage = result.Stage, approved = result.Approved });
+            var respInvalid = ApiResponse<object>.Validation("Invalid payload", ModelState.Values.SelectMany(v=>v.Errors).Select(e=>e.ErrorMessage), traceId);
+            return BadRequest(respInvalid);
         }
-        catch (KeyNotFoundException){ return NotFound(); }
-        catch (InvalidOperationException ex){ return BadRequest(ex.Message); }
+        var response = await _appService.RejectAsync(requestId, dto, traceId);
+        return MapResponse(response);
+    }
+
+    private IActionResult MapResponse<T>(ApiResponse<T> response)
+    {
+        if(response.ResponseCode == ResponseCodes.SUCCESS || response.ResponseCode == ResponseCodes.CREATED)
+            return Ok(response);
+        if(response.ResponseCode == ResponseCodes.NOT_FOUND)
+            return NotFound(response);
+        if(response.ResponseCode == ResponseCodes.VALIDATION_ERROR)
+            return BadRequest(response);
+        if(response.ResponseCode == ResponseCodes.FAILURE)
+            return BadRequest(response);
+        return StatusCode(500, response);
     }
 }

@@ -4,11 +4,11 @@ namespace LoanWorkflow.Shared.Workflow;
 
 public static class FlowConfiguration
 {
-    // FlowType -> ordered stages
-    public static readonly Dictionary<int, string[]> Flows = new()
+    // LoanType -> ordered stages
+    public static readonly Dictionary<string, string[]> Flows = new(StringComparer.OrdinalIgnoreCase)
     {
-        {1, new[]{"FT","HOP","ZONAL_HEAD","ED"}},
-        {2, new[]{"FT","HOP","BRANCH","ZONAL_HEAD","ED"}},
-        {3, new[]{"FT","HOP","FIN_INT_CTRL","MD"}},
+        {"standard", new[]{"FT","HOP","ZONAL_HEAD","ED"}},
+        {"multi_stage", new[]{"FT","HOP","BRANCH","ZONAL_HEAD","ED"}},
+        {"flex_review", new[]{"FT","HOP","FIN_INT_CTRL","MD"}},
     };
 }

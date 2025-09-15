@@ -20,6 +20,8 @@ public class LoanWorkflowDbContext : DbContext
             e.Property(x => x.Id).HasMaxLength(36);
             e.Property(x => x.BorrowerId).HasMaxLength(36);
             e.Property(x => x.Status).HasConversion<string>();
+            e.Property(x => x.FullName).HasMaxLength(150);
+            e.Property(x => x.LoanType).HasMaxLength(40);
         });
         modelBuilder.Entity<LoanRequestLog>(e =>
         {

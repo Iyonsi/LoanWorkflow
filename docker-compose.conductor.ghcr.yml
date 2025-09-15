@@ -1,0 +1,53 @@
+version: '3.8'
+# GHCR-based Conductor OSS + Postgres + UI
+services:
+  conductor-postgres:
+    image: postgres:15-alpine
+    container_name: conductor-postgres
+    environment:
+      POSTGRES_USER: conductor
+      POSTGRES_PASSWORD: conductor
+      POSTGRES_DB: conductor
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "conductor"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    ports:
+      - "5434:5432"
+    volumes:
+      - conductor_pg_data:/var/lib/postgresql/data
+
+  conductor-server:
+    image: ghcr.io/conductor-oss/conductor-server:latest
+    container_name: conductor-server
+    depends_on:
+      conductor-postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://conductor-postgres:5432/conductor
+      SPRING_DATASOURCE_USERNAME: conductor
+      SPRING_DATASOURCE_PASSWORD: conductor
+      CONDUCTOR_DB_TYPE: postgres
+      LOADSAMPLE: 'true'
+      CONDUCTOR_EXTERNAL_PAYLOAD_STORAGE_ENABLED: 'false'
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+
+  conductor-ui:
+    image: ghcr.io/conductor-oss/conductor-ui:latest
+    container_name: conductor-ui
+    depends_on:
+      - conductor-server
+    environment:
+      CONDUCTOR_SERVER_URL: http://conductor-server:8080
+    ports:
+      - "5001:80"
+
+volumes:
+  conductor_pg_data:

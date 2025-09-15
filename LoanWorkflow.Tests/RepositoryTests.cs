@@ -31,7 +31,7 @@ public class RepositoryTests
     public async Task GenericRepository_InsertAndGet_Works()
     {
         var repo = new GenericRepository<LoanRequest>(_db);
-        var entity = new LoanRequest { BorrowerId = "B1", Amount = 50, FlowType = 1, CurrentStage = "FT", StageIndex = 0, Status = LoanRequestStatus.InProgress };
+    var entity = new LoanRequest { BorrowerId = "B1", Amount = 50, LoanType = "standard", FullName = "Test User", IsEligible = true, CurrentStage = "FT", StageIndex = 0, Status = LoanRequestStatus.InProgress };
         await repo.InsertAsync(entity);
         await _db.SaveChangesAsync();
         var fetched = await repo.GetByIdAsync(entity.Id);

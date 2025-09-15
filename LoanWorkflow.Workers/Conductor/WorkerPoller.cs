@@ -52,8 +52,8 @@ public class WorkerPoller
     {
         var output = new Dictionary<string,object>();
         var requestId = task.InputData?["requestId"]?.ToString() ?? string.Empty;
-        var flowType = int.Parse(task.InputData?["flowType"]?.ToString() ?? "0");
-        var stages = FlowConfiguration.Flows[flowType];
+    var loanType = task.InputData?["loanType"]?.ToString() ?? string.Empty;
+    var stages = FlowConfiguration.Flows[loanType];
         output["stages"] = stages;
         output["stageIndex"] = 0;
         await _client.UpdateTaskAsync(new ConductorTaskResult{TaskId=task.TaskId,WorkflowInstanceId=task.WorkflowInstanceId,OutputData=output});
@@ -63,7 +63,7 @@ public class WorkerPoller
     {
         var output = new Dictionary<string,object>();
         var requestId = task.InputData?["requestId"]?.ToString() ?? string.Empty;
-        var stageIndex = Convert.ToInt32(task.InputData?["stageIndex"] ?? 0);
+    var stageIndex = Convert.ToInt32(task.InputData?["stageIndex"] ?? 0);
         var stagesJson = JsonSerializer.Serialize(task.InputData?["stages"]);
         var stages = JsonSerializer.Deserialize<string[]>(stagesJson!) ?? Array.Empty<string>();
         var currentStage = stages[stageIndex];
@@ -80,7 +80,7 @@ public class WorkerPoller
 
     private async Task HandleAdvancePointer(TaskPollResult task)
     {
-        var stageIndex = Convert.ToInt32(task.InputData?["stageIndex"] ?? 0);
+    var stageIndex = Convert.ToInt32(task.InputData?["stageIndex"] ?? 0);
         var stagesJson = JsonSerializer.Serialize(task.InputData?["stages"]);
         var stages = JsonSerializer.Deserialize<string[]>(stagesJson!) ?? Array.Empty<string>();
         var requestId = task.InputData?["requestId"]?.ToString() ?? string.Empty;
@@ -100,23 +100,23 @@ public class WorkerPoller
 
     private async Task HandleRejection(TaskPollResult task)
     {
-        var stageIndex = Convert.ToInt32(task.InputData?["stageIndex"] ?? 0);
-        var requestId = task.InputData?["requestId"]?.ToString() ?? string.Empty;
-        var flowType = Convert.ToInt32(task.InputData?["flowType"] ?? 0);
+    var stageIndex = Convert.ToInt32(task.InputData?["stageIndex"] ?? 0);
+    var requestId = task.InputData?["requestId"]?.ToString() ?? string.Empty;
+    var loanType = task.InputData?["loanType"]?.ToString() ?? string.Empty;
         var stagesJson = System.Text.Json.JsonSerializer.Serialize(task.InputData?["stages"]);
         var stages = System.Text.Json.JsonSerializer.Deserialize<string[]>(stagesJson!) ?? Array.Empty<string>();
         using var con = new SqlConnection(_connStr);
-        if (flowType == 1)
+    if (string.Equals(loanType, "standard", StringComparison.OrdinalIgnoreCase))
         {
             stageIndex = 0;
             await con.ExecuteAsync("UPDATE LoanRequest SET StageIndex=0, CurrentStage=@Stage, UpdatedAt=@Now WHERE Id=@Id", new { Id=requestId, Stage=stages[0], Now=DateTime.UtcNow });
         }
-        else if (flowType == 3)
+    else if (string.Equals(loanType, "flex_review", StringComparison.OrdinalIgnoreCase))
         {
             stageIndex = Math.Max(stageIndex - 1, 0);
             await con.ExecuteAsync("UPDATE LoanRequest SET StageIndex=@Idx, CurrentStage=@Stage, UpdatedAt=@Now WHERE Id=@Id", new { Id=requestId, Idx=stageIndex, Stage=stages[stageIndex], Now=DateTime.UtcNow });
         }
-        else if (flowType == 2)
+    else if (string.Equals(loanType, "multi_stage", StringComparison.OrdinalIgnoreCase))
         {
             // Should not happen
             await _client.UpdateTaskAsync(new ConductorTaskResult{TaskId=task.TaskId,WorkflowInstanceId=task.WorkflowInstanceId,Status="FAILED",ReasonForIncompletion="Rejection not allowed"});

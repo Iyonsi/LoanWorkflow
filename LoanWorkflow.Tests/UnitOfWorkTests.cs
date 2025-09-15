@@ -35,7 +35,7 @@ public class UnitOfWorkTests
         var logRepo = new LoanRequestLogRepository(_db);
         var sp = new Mock<IServiceProvider>().Object;
         var uow = new UnitOfWork(_db, sp, lrRepo, logRepo);
-        var req = new LoanRequest { BorrowerId = "B2", Amount = 10, FlowType = 1, CurrentStage = "FT", StageIndex = 0, Status = LoanRequestStatus.InProgress };
+    var req = new LoanRequest { BorrowerId = "B2", Amount = 10, LoanType = "standard", FullName = "User Two", IsEligible = false, CurrentStage = "FT", StageIndex = 0, Status = LoanRequestStatus.InProgress };
         await uow.LoanRequests.InsertAsync(req);
         var changes = await uow.SaveChangesAsync();
         Assert.That(changes, Is.GreaterThanOrEqualTo(1));

@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using LoanWorkflow.Api.Data;
-using LoanWorkflow.Api.Conductor;
+using LoanWorkflow.Api.Features.Common;
+using LoanWorkflow.Api.Features.Constants;
+using LoanWorkflow.Api.Services.ApplicationServices;
 
 namespace LoanWorkflow.Api.Controllers;
 
@@ -9,33 +9,30 @@ namespace LoanWorkflow.Api.Controllers;
 [Route("api/[controller]")]
 public class HealthController : ControllerBase
 {
-    private readonly LoanWorkflowDbContext _db;
-    private readonly ConductorClient _conductor;
-    private readonly IHttpClientFactory _httpFactory;
+    private readonly IHealthApplicationService _appService;
     private readonly IConfiguration _cfg;
-    public HealthController(LoanWorkflowDbContext db, ConductorClient conductor, IHttpClientFactory httpFactory, IConfiguration cfg)
-    { _db = db; _conductor = conductor; _httpFactory = httpFactory; _cfg = cfg; }
+    private readonly IHttpClientFactory _httpFactory;
+    public HealthController(IHealthApplicationService appService, IConfiguration cfg, IHttpClientFactory httpFactory)
+    { _appService = appService; _cfg = cfg; _httpFactory = httpFactory; }
 
     [HttpGet]
     public async Task<IActionResult> Get()
     {
-        var dbOk = await _db.Database.CanConnectAsync();
-        var baseUrl = _cfg["Conductor:BaseUrl"] ?? string.Empty;
-        var conductorOk = false;
-        if(!string.IsNullOrWhiteSpace(baseUrl))
-        {
-            try
-            {
-                var client = _httpFactory.CreateClient("conductor");
-                if(!client.BaseAddress?.ToString().Contains(baseUrl.TrimEnd('/')) ?? true)
-                {
-                    client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
-                }
-                var resp = await client.GetAsync("/health", HttpContext.RequestAborted);
-                conductorOk = resp.IsSuccessStatusCode;
-            }
-            catch { conductorOk = false; }
-        }
-        return Ok(new { db = dbOk ? "OK" : "FAIL", conductor = conductorOk ? "OK" : "FAIL" });
+        var traceId = HttpContext.TraceIdentifier;
+        var response = await _appService.GetAsync(traceId, _cfg, _httpFactory, HttpContext.RequestAborted);
+        return MapResponse(response);
+    }
+
+    private IActionResult MapResponse<T>(ApiResponse<T> response)
+    {
+        if(response.ResponseCode == ResponseCodes.SUCCESS || response.ResponseCode == ResponseCodes.CREATED)
+            return Ok(response);
+        if(response.ResponseCode == ResponseCodes.NOT_FOUND)
+            return NotFound(response);
+        if(response.ResponseCode == ResponseCodes.VALIDATION_ERROR)
+            return BadRequest(response);
+        if(response.ResponseCode == ResponseCodes.FAILURE)
+            return BadRequest(response);
+        return StatusCode(500, response);
     }
 }
