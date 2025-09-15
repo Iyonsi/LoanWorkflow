@@ -52,8 +52,8 @@ public class WorkerPoller
     {
         var output = new Dictionary<string,object>();
         var requestId = task.InputData?["requestId"]?.ToString() ?? string.Empty;
-    var loanType = task.InputData?["loanType"]?.ToString() ?? string.Empty;
-    var stages = FlowConfiguration.Flows[loanType];
+        var loanType = task.InputData?["loanType"]?.ToString() ?? string.Empty;
+        var stages = FlowConfiguration.Flows[loanType];
         output["stages"] = stages;
         output["stageIndex"] = 0;
         await _client.UpdateTaskAsync(new ConductorTaskResult{TaskId=task.TaskId,WorkflowInstanceId=task.WorkflowInstanceId,OutputData=output});
@@ -63,18 +63,18 @@ public class WorkerPoller
     {
         var output = new Dictionary<string,object>();
         var requestId = task.InputData?["requestId"]?.ToString() ?? string.Empty;
-    var stageIndex = Convert.ToInt32(task.InputData?["stageIndex"] ?? 0);
+        var stageIndex = Convert.ToInt32(task.InputData?["stageIndex"] ?? 0);
         var stagesJson = JsonSerializer.Serialize(task.InputData?["stages"]);
         var stages = JsonSerializer.Deserialize<string[]>(stagesJson!) ?? Array.Empty<string>();
         var currentStage = stages[stageIndex];
         using var con = new SqlConnection(_connStr);
-    var decision = await con.QueryFirstOrDefaultAsync<string>($"SELECT TOP 1 Action FROM LoanRequestLog WHERE LoanRequestId=@Id AND Stage=@Stage AND Action IN ('{LoanRequestActions.Approved}','{LoanRequestActions.Rejected}') ORDER BY CreatedAt DESC", new { Id = requestId, Stage = currentStage });
-    if (string.IsNullOrEmpty(decision))
+        var decision = await con.QueryFirstOrDefaultAsync<string>($"SELECT TOP 1 Action FROM LoanRequestLog WHERE LoanRequestId=@Id AND Stage=@Stage AND Action IN ('{LoanRequestActions.Approved}','{LoanRequestActions.Rejected}') ORDER BY CreatedAt DESC", new { Id = requestId, Stage = currentStage });
+        if (string.IsNullOrEmpty(decision))
         {
             await _client.UpdateTaskAsync(new ConductorTaskResult{TaskId=task.TaskId,WorkflowInstanceId=task.WorkflowInstanceId,Status="IN_PROGRESS", CallbackAfterSeconds=5});
             return;
         }
-    output["approved"] = decision == "APPROVED";
+        output["approved"] = decision == "APPROVED";
         await _client.UpdateTaskAsync(new ConductorTaskResult{TaskId=task.TaskId,WorkflowInstanceId=task.WorkflowInstanceId,OutputData=output});
     }
 
