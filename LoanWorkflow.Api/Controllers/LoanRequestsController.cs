@@ -11,12 +11,14 @@ namespace LoanWorkflow.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Microsoft.AspNetCore.Authorization.Authorize]
 public class LoanRequestsController : ControllerBase
 {
     private readonly ILoanRequestApplicationService _appService;
     public LoanRequestsController(ILoanRequestApplicationService appService){ _appService = appService; }
 
     [HttpPost("standard")]
+    [Microsoft.AspNetCore.Authorization.Authorize(Policy = "CanInitiateLoan")]
     public async Task<IActionResult> CreateStandard([FromBody] CreateLoanRequestDto dto)
     {
         var traceId = HttpContext.TraceIdentifier;
@@ -30,6 +32,7 @@ public class LoanRequestsController : ControllerBase
     }
 
     [HttpPost("multi-stage")]
+    [Microsoft.AspNetCore.Authorization.Authorize(Policy = "CanInitiateLoan")]
     public async Task<IActionResult> CreateMultiStage([FromBody] CreateLoanRequestDto dto)
     {
         var traceId = HttpContext.TraceIdentifier;
@@ -43,6 +46,7 @@ public class LoanRequestsController : ControllerBase
     }
 
     [HttpPost("flex-review")]
+    [Microsoft.AspNetCore.Authorization.Authorize(Policy = "CanInitiateLoan")]
     public async Task<IActionResult> CreateFlexReview([FromBody] CreateLoanRequestDto dto)
     {
         var traceId = HttpContext.TraceIdentifier;

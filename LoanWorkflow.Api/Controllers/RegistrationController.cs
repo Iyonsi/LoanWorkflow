@@ -7,6 +7,7 @@ namespace LoanWorkflow.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Microsoft.AspNetCore.Authorization.AllowAnonymous]
 public class RegistrationController : ControllerBase
 {
     private readonly IRegistrationApplicationService _appService;

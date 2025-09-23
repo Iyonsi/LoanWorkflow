@@ -8,6 +8,7 @@ using LoanWorkflow.Shared.DTOs;
 using LoanWorkflow.Shared.Domain;
 using LoanWorkflow.Api.Conductor;
 using Microsoft.Extensions.Configuration;
+using LoanWorkflow.Api.Services; // Ensure DecisionResult with FullName is visible
 
 namespace LoanWorkflow.Tests;
 
@@ -67,28 +68,29 @@ public class LoanRequestServiceTests
     [Test]
     public async Task ApproveAsync_FirstApproval_WritesLog()
     {
-    var req = new LoanRequest { LoanType = "standard", Amount = 10, BorrowerId = Guid.NewGuid().ToString(), StageIndex = 0, CurrentStage = "FT", Status = LoanRequestStatus.InProgress };
+    var req = new LoanRequest { LoanType = "standard", Amount = 10, BorrowerId = Guid.NewGuid().ToString(), FullName = "Tester A", StageIndex = 0, CurrentStage = "FT", Status = LoanRequestStatus.InProgress };
         _loanRepo.Setup(r => r.GetByIdAsync(It.IsAny<string>())).ReturnsAsync(req);
         _logRepo.Setup(l => l.CountStageDecisionAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(0);
         _logRepo.Setup(l => l.InsertAsync(It.IsAny<LoanRequestLog>())).Returns(Task.CompletedTask);
-        var result = await _svc.ApproveAsync(req.Id, new DecisionDto{ ActorUserId = Guid.NewGuid().ToString(), Approved = true, Stage = "FT", RequestId = req.Id });
+    var result = await _svc.ApproveAsync(req.Id, new DecisionDto{ ActorUserId = Guid.NewGuid().ToString(), Approved = true, RequestId = req.Id }, "FT");
         Assert.That(result.Approved, Is.True);
-        Assert.That(result.Stage, Is.EqualTo("FT"));
+    Assert.That(result.Stage, Is.EqualTo("FT"));
+    Assert.That(result.FullName, Is.EqualTo("Tester A"));
     }
 
     [Test]
     public void ApproveAsync_Duplicate_Throws()
     {
-    var req = new LoanRequest { LoanType = "standard", Amount = 10, BorrowerId = Guid.NewGuid().ToString(), StageIndex = 0, CurrentStage = "FT", Status = LoanRequestStatus.InProgress };
+    var req = new LoanRequest { LoanType = "standard", Amount = 10, BorrowerId = Guid.NewGuid().ToString(), FullName = "Tester B", StageIndex = 0, CurrentStage = "FT", Status = LoanRequestStatus.InProgress };
         _loanRepo.Setup(r => r.GetByIdAsync(It.IsAny<string>())).ReturnsAsync(req);
         _logRepo.Setup(l => l.CountStageDecisionAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(1);
-        Assert.ThrowsAsync<InvalidOperationException>(() => _svc.ApproveAsync(req.Id, new DecisionDto{ ActorUserId = Guid.NewGuid().ToString(), Approved = true, Stage = "FT", RequestId = req.Id }));
+    Assert.ThrowsAsync<InvalidOperationException>(() => _svc.ApproveAsync(req.Id, new DecisionDto{ ActorUserId = Guid.NewGuid().ToString(), Approved = true, RequestId = req.Id }, "FT"));
     }
 
     [Test]
     public async Task RejectAsync_Flow3_RecordsLog()
     {
-    var req = new LoanRequest { LoanType = "flex_review", Amount = 10, BorrowerId = Guid.NewGuid().ToString(), StageIndex = 1, CurrentStage = "HOP", Status = LoanRequestStatus.InProgress };
+    var req = new LoanRequest { LoanType = "flex_review", Amount = 10, BorrowerId = Guid.NewGuid().ToString(), FullName = "Tester C", StageIndex = 1, CurrentStage = "HOP", Status = LoanRequestStatus.InProgress };
         _loanRepo.Setup(r => r.GetByIdAsync(It.IsAny<string>())).ReturnsAsync(req);
         _logRepo.Setup(l => l.CountStageDecisionAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(0);
         _logRepo.Setup(l => l.InsertAsync(It.IsAny<LoanRequestLog>())).Returns(Task.CompletedTask);
@@ -100,7 +102,7 @@ public class LoanRequestServiceTests
     [Test]
     public void RejectAsync_Flow2_Throws()
     {
-    var req = new LoanRequest { LoanType = "multi_stage", Amount = 10, BorrowerId = Guid.NewGuid().ToString(), StageIndex = 2, CurrentStage = "BRANCH", Status = LoanRequestStatus.InProgress };
+    var req = new LoanRequest { LoanType = "multi_stage", Amount = 10, BorrowerId = Guid.NewGuid().ToString(), FullName = "Tester D", StageIndex = 2, CurrentStage = "BRANCH", Status = LoanRequestStatus.InProgress };
         _loanRepo.Setup(r => r.GetByIdAsync(It.IsAny<string>())).ReturnsAsync(req);
         Assert.ThrowsAsync<InvalidOperationException>(() => _svc.RejectAsync(req.Id, new DecisionDto{ ActorUserId = Guid.NewGuid().ToString(), Approved = false, Stage = "BRANCH", RequestId = req.Id }));
     }

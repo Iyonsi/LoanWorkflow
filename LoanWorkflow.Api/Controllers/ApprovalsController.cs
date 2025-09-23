@@ -9,12 +9,14 @@ namespace LoanWorkflow.Api.Controllers;
 
 [ApiController]
 [Route("api/loan-requests/{requestId}/[controller]")]
+[Microsoft.AspNetCore.Authorization.Authorize]
 public class ApprovalsController : ControllerBase
 {
     private readonly IApprovalApplicationService _appService;
     public ApprovalsController(IApprovalApplicationService appService){ _appService = appService; }
 
     [HttpPost("approve")] 
+    [Microsoft.AspNetCore.Authorization.Authorize(Policy = "CanApproveLoan")]
     public async Task<IActionResult> Approve(string requestId, [FromBody] DecisionDto dto)
     {
         var traceId = HttpContext.TraceIdentifier;
@@ -23,11 +25,18 @@ public class ApprovalsController : ControllerBase
             var respInvalid = ApiResponse<object>.Validation("Invalid payload", ModelState.Values.SelectMany(v=>v.Errors).Select(e=>e.ErrorMessage), traceId);
             return BadRequest(respInvalid);
         }
-        var response = await _appService.ApproveAsync(requestId, dto, traceId);
+        var role = User.Claims.FirstOrDefault(c=>c.Type == System.Security.Claims.ClaimTypes.Role)?.Value;
+        if(string.IsNullOrWhiteSpace(role))
+        {
+            var respInvalid = ApiResponse<object>.Failure("User role claim missing", traceId: traceId);
+            return BadRequest(respInvalid);
+        }
+        var response = await _appService.ApproveAsync(requestId, dto, traceId, role);
         return MapResponse(response);
     }
 
     [HttpPost("reject")] 
+    [Microsoft.AspNetCore.Authorization.Authorize(Policy = "CanApproveLoan")]
     public async Task<IActionResult> Reject(string requestId, [FromBody] DecisionDto dto)
     {
         var traceId = HttpContext.TraceIdentifier;

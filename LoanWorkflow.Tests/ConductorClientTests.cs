@@ -22,9 +22,19 @@ public class ConductorClientTests
     [Test]
     public async Task StartWorkflowAsync_ReturnsId()
     {
-        var handler = new FakeHandler(req => new HttpResponseMessage(HttpStatusCode.OK){ Content = new StringContent("\"wf-abc\"")});
+        // Respond with token first then workflow id
+        var handler = new FakeHandler(req =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/token"))
+                return new HttpResponseMessage(HttpStatusCode.OK){ Content = new StringContent("{\"token\":\"t123\",\"expiryTime\":9999999999999}")};
+            return new HttpResponseMessage(HttpStatusCode.OK){ Content = new StringContent("\"wf-abc\"")};
+        });
         var http = new HttpClient(handler){ BaseAddress = new Uri("http://localhost/") };
-        var cfg = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{ {"Conductor:BaseUrl","http://localhost"} }).Build();
+        var cfg = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{
+            {"Conductor:BaseUrl","http://localhost"},
+            {"Conductor:ApiKey","k"},
+            {"Conductor:ApiSecret","s"}
+        }).Build();
         var client = new ConductorClient(cfg, new TestFactory(http));
         var id = await client.StartWorkflowAsync("loan_dynamic_workflow",1,new { x=1 });
         Assert.That(id, Is.EqualTo("wf-abc"));

@@ -46,9 +46,28 @@ public class LoanRequestServiceAdvancedTests
         _loanRepo.Setup(r => r.GetByIdAsync(It.IsAny<string>())).ReturnsAsync(req);
         _logRepo.Setup(l => l.CountStageDecisionAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(0);
         _logRepo.Setup(l => l.InsertAsync(It.IsAny<LoanRequestLog>())).Returns(Task.CompletedTask);
-        var result = await _svc.ApproveAsync(req.Id, new DecisionDto{ ActorUserId = Guid.NewGuid().ToString(), Approved = true, Stage = "ED", RequestId = req.Id });
+    var result = await _svc.ApproveAsync(req.Id, new DecisionDto{ ActorUserId = Guid.NewGuid().ToString(), Approved = true, RequestId = req.Id }, "ED");
         Assert.That(result.Approved, Is.True);
         Assert.That(req.Status, Is.EqualTo(LoanRequestStatus.Approved));
+    }
+
+    [Test]
+    public async Task Approve_FinalStage_CreatesLoanRecord_WhenMissing()
+    {
+        var req = new LoanRequest { LoanType = "standard", StageIndex = 3, CurrentStage = "ED", Status = LoanRequestStatus.InProgress, Amount = 5000 };
+        _loanRepo.Setup(r => r.GetByIdAsync(It.IsAny<string>())).ReturnsAsync(req);
+        _logRepo.Setup(l => l.CountStageDecisionAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(0);
+        _logRepo.Setup(l => l.InsertAsync(It.IsAny<LoanRequestLog>())).Returns(Task.CompletedTask);
+        // Mock generic repository for Loan via UnitOfWork.Repository<Loan>()
+        var loanGenericRepo = new Mock<IRepository<Loan>>();
+        var inserted = new List<Loan>();
+        loanGenericRepo.Setup(r => r.Query()).Returns(inserted.AsQueryable());
+        loanGenericRepo.Setup(r => r.InsertAsync(It.IsAny<Loan>())).Returns<Loan>(l => { inserted.Add(l); return Task.CompletedTask; });
+        _uow.Setup(u => u.Repository<Loan>()).Returns(loanGenericRepo.Object);
+    var result = await _svc.ApproveAsync(req.Id, new DecisionDto{ ActorUserId = Guid.NewGuid().ToString(), Approved = true, RequestId = req.Id }, "ED");
+        Assert.That(result.Approved, Is.True);
+        Assert.That(inserted.Count, Is.EqualTo(1), "Loan record should be inserted");
+        Assert.That(inserted[0].Principal, Is.EqualTo(req.Amount));
     }
 
     [Test]

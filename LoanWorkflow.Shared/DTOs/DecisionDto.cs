@@ -7,8 +7,8 @@ public class DecisionDto
     public string RequestId { get; set; } = string.Empty;
     [Required, StringLength(36)]
     public string ActorUserId { get; set; } = string.Empty;
-    [Required]
-    public string Stage { get; set; } = string.Empty;
+    [Obsolete("Stage is ignored; server uses logged-in user role.")]
+    public string? Stage { get; set; } = string.Empty;
     public bool Approved { get; set; }
     [StringLength(500)]
     public string? Comments { get; set; }

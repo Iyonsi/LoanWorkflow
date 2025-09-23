@@ -37,6 +37,7 @@ public class LoanWorkflowDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasMaxLength(36);
             e.Property(x => x.LoanRequestId).HasMaxLength(36);
+            e.Property(x => x.FullName).HasMaxLength(150);
         });
         base.OnModelCreating(modelBuilder);
     }

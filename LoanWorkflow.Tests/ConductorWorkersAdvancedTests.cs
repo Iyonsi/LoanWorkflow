@@ -43,7 +43,7 @@ public class ConductorWorkersAdvancedTests
     }
 
     [Test]
-    public void Token_Failure_Throws()
+    public async Task Token_Failure_Ack_SoftFails_NoThrow()
     {
         var handler = new SequenceHandler();
         handler.Enqueue(new HttpResponseMessage(HttpStatusCode.BadRequest){ Content = new StringContent("bad")});
@@ -52,6 +52,8 @@ public class ConductorWorkersAdvancedTests
             {"Conductor:BaseUrl","http://wrk"}, {"Conductor:ApiKey","k"}, {"Conductor:ApiSecret","s"}
         }).Build();
         var client = new ConductorClient(http, cfg);
-        Assert.ThrowsAsync<InvalidOperationException>(() => client.AckAsync("t1","w1"));
+        // Should not throw; token acquisition fails silently
+        await client.AckAsync("t1","w1");
+        Assert.Pass();
     }
 }

@@ -18,6 +18,7 @@ public class ConductorClient : IWorkflowStarter
     private string? _bearerToken;
     private DateTime _tokenExpiry = DateTime.MinValue;
     private readonly string _baseUrl;
+    private readonly SemaphoreSlim _tokenLock = new(1,1);
     public ConductorClient(IConfiguration cfg, IHttpClientFactory factory, ILogger<ConductorClient>? logger = null)
     {
         _http = factory.CreateClient("conductor");
@@ -82,12 +83,26 @@ public class ConductorClient : IWorkflowStarter
     {
         if(!_enabled || _http.BaseAddress is null) return null; // offline mode
         await EnsureTokenAsync();
+        if (string.IsNullOrEmpty(_bearerToken))
+        {
+            _logger?.LogWarning("Cannot start workflow {Name} because token not acquired", name);
+            return null;
+        }
         var payload = JsonSerializer.Serialize(new { name, version, input });
         var req = new HttpRequestMessage(HttpMethod.Post, "workflow") { Content = new StringContent(payload, Encoding.UTF8, "application/json") };
         if (!string.IsNullOrEmpty(_bearerToken)) req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _bearerToken);
         var resp = await _http.SendAsync(req);
         if(!resp.IsSuccessStatusCode)
         {
+            if(resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _logger?.LogWarning("StartWorkflow unauthorized, refreshing token and retrying once");
+                InvalidateToken();
+                await EnsureTokenAsync(force:true);
+                req = new HttpRequestMessage(HttpMethod.Post, "workflow") { Content = new StringContent(payload, Encoding.UTF8, "application/json") };
+                if (!string.IsNullOrEmpty(_bearerToken)) req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _bearerToken);
+                resp = await _http.SendAsync(req);
+            }
             var body = await SafeBody(resp);
             _logger?.LogWarning("StartWorkflow failed {Status} {Body}", (int)resp.StatusCode, body);
             return null;
@@ -97,33 +112,58 @@ public class ConductorClient : IWorkflowStarter
         return txt.Trim('"');
     }
 
-    private async Task EnsureTokenAsync()
+    private async Task EnsureTokenAsync(bool force = false)
     {
         if(!_enabled || string.IsNullOrEmpty(_apiKey) || string.IsNullOrEmpty(_apiSecret)) return;
-        if(!string.IsNullOrEmpty(_bearerToken) && _tokenExpiry > DateTime.UtcNow.AddMinutes(1)) return;
-        var tokenUrl = _baseUrl + "token";
-        var req = new HttpRequestMessage(HttpMethod.Post, tokenUrl)
+        if(!force && !string.IsNullOrEmpty(_bearerToken) && _tokenExpiry > DateTime.UtcNow.AddMinutes(1)) return;
+        await _tokenLock.WaitAsync();
+        try
         {
-            Content = new StringContent($"{{\"keyId\":\"{_apiKey}\",\"keySecret\":\"{_apiSecret}\"}}", Encoding.UTF8, "application/json")
-        };
-        var resp = await _http.SendAsync(req);
-        if(!resp.IsSuccessStatusCode)
-        {
-            var body = await SafeBody(resp);
-            _logger?.LogError("Token request failed {Status} {Body}", (int)resp.StatusCode, body);
-            throw new InvalidOperationException($"Failed to get Orkes token: {resp.StatusCode} {body}");
+            if(!force && !string.IsNullOrEmpty(_bearerToken) && _tokenExpiry > DateTime.UtcNow.AddMinutes(1)) return; // double-check
+            var tokenUrl = _baseUrl + "token";
+            var req = new HttpRequestMessage(HttpMethod.Post, tokenUrl)
+            {
+                Content = new StringContent($"{{\"keyId\":\"{_apiKey}\",\"keySecret\":\"{_apiSecret}\"}}", Encoding.UTF8, "application/json")
+            };
+            var resp = await _http.SendAsync(req);
+            if(!resp.IsSuccessStatusCode)
+            {
+                var body = await SafeBody(resp);
+                _logger?.LogError("Token request failed {Status} {Body}", (int)resp.StatusCode, body);
+                throw new InvalidOperationException($"Failed to get Orkes token: {resp.StatusCode} {body}");
+            }
+            var json = await resp.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            _bearerToken = doc.RootElement.TryGetProperty("token", out var tokenEl) ? tokenEl.GetString() : null;
+            if (string.IsNullOrWhiteSpace(_bearerToken))
+            {
+                _logger?.LogError("Token response missing 'token' field: {Json}", json);
+                throw new InvalidOperationException("Token response missing token");
+            }
+            var exp = doc.RootElement.TryGetProperty("expiryTime", out var expiry) ? expiry.GetInt64() : 0;
+            if(exp > 0) _tokenExpiry = DateTimeOffset.FromUnixTimeMilliseconds(exp).UtcDateTime; else _tokenExpiry = DateTime.UtcNow.AddMinutes(10);
+            _logger?.LogInformation("Obtained Orkes token expiring at {Expiry} (force={Force})", _tokenExpiry, force);
         }
-        var json = await resp.Content.ReadAsStringAsync();
-        using var doc = JsonDocument.Parse(json);
-        _bearerToken = doc.RootElement.GetProperty("token").GetString();
-        var exp = doc.RootElement.TryGetProperty("expiryTime", out var expiry) ? expiry.GetInt64() : 0;
-        exp = 1;
-        if(exp > 0) _tokenExpiry = DateTimeOffset.FromUnixTimeMilliseconds(exp).UtcDateTime;
+        finally
+        {
+            _tokenLock.Release();
+        }
+    }
+
+    private void InvalidateToken()
+    {
+        _bearerToken = null;
+        _tokenExpiry = DateTime.MinValue;
     }
 
     private static async Task<string> SafeBody(HttpResponseMessage resp)
     {
-        try { return (await resp.Content.ReadAsStringAsync())[..Math.Min(500, (await resp.Content.ReadAsStringAsync()).Length)]; }
+        try
+        {
+            var body = await resp.Content.ReadAsStringAsync();
+            if (string.IsNullOrEmpty(body)) return "<empty>";
+            return body.Length > 500 ? body.Substring(0,500) : body;
+        }
         catch { return "<no body>"; }
     }
 }

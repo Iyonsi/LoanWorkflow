@@ -6,7 +6,7 @@ namespace LoanWorkflow.Api.Services.ApplicationServices;
 
 public interface IApprovalApplicationService
 {
-    Task<ApiResponse<object>> ApproveAsync(string requestId, DecisionDto dto, string traceId);
+    Task<ApiResponse<object>> ApproveAsync(string requestId, DecisionDto dto, string traceId, string userRole);
     Task<ApiResponse<object>> RejectAsync(string requestId, DecisionDto dto, string traceId);
 }
 
@@ -15,11 +15,11 @@ public sealed class ApprovalApplicationService : IApprovalApplicationService
     private readonly ILoanRequestService _domain;
     public ApprovalApplicationService(ILoanRequestService domain){ _domain = domain; }
 
-    public async Task<ApiResponse<object>> ApproveAsync(string requestId, DecisionDto dto, string traceId)
+    public async Task<ApiResponse<object>> ApproveAsync(string requestId, DecisionDto dto, string traceId, string userRole)
     {
         try
         {
-            var result = await _domain.ApproveAsync(requestId, dto);
+            var result = await _domain.ApproveAsync(requestId, dto, userRole);
             return ApiResponse<object>.Success(new { requestId, stage = result.Stage, approved = result.Approved }, "Approved", ResponseCodes.SUCCESS, traceId);
         }
         catch (KeyNotFoundException)

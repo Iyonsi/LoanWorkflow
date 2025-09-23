@@ -130,7 +130,9 @@ public class WorkerPoller
     {
         var requestId = task.InputData?["requestId"]?.ToString() ?? string.Empty;
         using var con = new SqlConnection(_connStr);
-        var status = await con.QueryFirstOrDefaultAsync<string>("SELECT Status FROM LoanRequest WHERE Id=@Id", new { Id=requestId });
+    var row = await con.QueryFirstOrDefaultAsync<(string Status,string FullName)>("SELECT Status, FullName FROM LoanRequest WHERE Id=@Id", new { Id=requestId });
+    var status = row.Status;
+    var fullName = row.FullName;
         if (status != "Approved")
         {
             await _client.UpdateTaskAsync(new ConductorTaskResult{TaskId=task.TaskId,WorkflowInstanceId=task.WorkflowInstanceId,Status="COMPLETED",OutputData=new(){{"status","SKIPPED"}}});
@@ -140,9 +142,9 @@ public class WorkerPoller
         if (existing == 0)
         {
             var now = DateTime.UtcNow;
-            await con.ExecuteAsync(@"INSERT INTO Loan (Id, LoanRequestId, LoanNumber, Principal, InterestRate, TermMonths, StartDate, Status, CreatedAt, UpdatedAt)
-VALUES (@Id,@LoanRequestId,@LoanNumber,0,0,0,@StartDate,'ACTIVE',@CreatedAt,@UpdatedAt)", new {
-                Id = Guid.NewGuid().ToString(), LoanRequestId = requestId, LoanNumber = "LN-" + requestId[..8].ToUpperInvariant(), StartDate = DateTime.UtcNow.Date, CreatedAt = now, UpdatedAt = now
+            await con.ExecuteAsync(@"INSERT INTO Loan (Id, LoanRequestId, LoanNumber, FullName, Principal, InterestRate, TermMonths, StartDate, Status, CreatedAt, UpdatedAt)
+VALUES (@Id,@LoanRequestId,@LoanNumber,@FullName,0,0,0,@StartDate,'ACTIVE',@CreatedAt,@UpdatedAt)", new {
+                Id = Guid.NewGuid().ToString(), LoanRequestId = requestId, LoanNumber = "LN-" + requestId[..8].ToUpperInvariant(), FullName = fullName ?? string.Empty, StartDate = DateTime.UtcNow.Date, CreatedAt = now, UpdatedAt = now
             });
         }
         await _client.UpdateTaskAsync(new ConductorTaskResult{TaskId=task.TaskId,WorkflowInstanceId=task.WorkflowInstanceId,OutputData=new(){{"status","CREATED"}}});

@@ -6,6 +6,7 @@ public sealed class Loan : BaseEntity
 {
     public string LoanRequestId { get; set; } = string.Empty;
     public string LoanNumber { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty; // Borrower full name copied from LoanRequest for reporting
     public decimal Principal { get; set; }
     public decimal InterestRate { get; set; }
     public int TermMonths { get; set; }

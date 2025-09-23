@@ -13,7 +13,7 @@ namespace LoanWorkflow.Api.Services;
 public interface ILoanRequestService
 {
     Task<(LoanRequest request, string? workflowId)> CreateAsync(CreateLoanRequestDto dto, string loanType);
-    Task<DecisionResult> ApproveAsync(string requestId, DecisionDto dto);
+    Task<DecisionResult> ApproveAsync(string requestId, DecisionDto dto, string userRole);
     Task<DecisionResult> RejectAsync(string requestId, DecisionDto dto);
     Task<LoanRequest?> GetAsync(string id);
     Task<IEnumerable<LoanRequestLog>> GetLogsAsync(string id);
@@ -63,12 +63,19 @@ public sealed class LoanRequestService : ILoanRequestService
         return (request, wfId);
     }
 
-    public async Task<DecisionResult> ApproveAsync(string requestId, DecisionDto dto)
+    public async Task<DecisionResult> ApproveAsync(string requestId, DecisionDto dto, string userRole)
     {
     var req = await _uow.LoanRequests.GetByIdAsync(requestId) ?? throw new KeyNotFoundException("Request not found");
         var stages = FlowConfiguration.Flows[req.LoanType];
+        // Determine the stage being approved. We trust the persisted CurrentStage/StageIndex pairing.
         var currentStage = stages[req.StageIndex];
-    var existing = await _uow.LoanRequestLogs.CountStageDecisionAsync(requestId, currentStage);
+        // Enforce that the logged-in user's role matches the current stage.
+        if(!string.Equals(userRole, currentStage, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("Approve role mismatch: request {RequestId} expected stage {Expected} but user role {Role}", requestId, currentStage, userRole);
+            throw new InvalidOperationException("User not authorized for current stage");
+        }
+        var existing = await _uow.LoanRequestLogs.CountStageDecisionAsync(requestId, currentStage);
         if (existing > 0)
         {
             _logger.LogWarning("Duplicate approval attempt for request {RequestId} stage {Stage}", requestId, currentStage);
@@ -85,23 +92,60 @@ public sealed class LoanRequestService : ILoanRequestService
             CreatedAt = now,
             UpdatedAt = now
         });
-        // Offline progression if Conductor disabled
-        if(!_conductorEnabled)
+        // Progress to next stage (was previously skipped when Conductor enabled causing stage to remain FT).
+        if(req.StageIndex < stages.Length - 1)
         {
-            if(req.StageIndex < stages.Length - 1)
+            req.StageIndex += 1;
+            req.CurrentStage = stages[req.StageIndex];
+            req.UpdatedAt = now;
+        }
+        else
+        {
+            // Final stage approved -> mark request approved
+            req.Status = LoanRequestStatus.Approved;
+            req.UpdatedAt = now;
+            // Create Loan record if not already created
+            try
             {
-                req.StageIndex += 1;
-                req.CurrentStage = stages[req.StageIndex];
-                req.UpdatedAt = now;
+                var loanRepo = _uow.Repository<Loan>();
+                // Use AnyAsync if EF provider present, otherwise fallback to in-memory evaluation
+                var loanQuery = loanRepo.Query().Where(l => l.LoanRequestId == requestId);
+                bool exists;
+                if (loanQuery.Provider is Microsoft.EntityFrameworkCore.Query.IAsyncQueryProvider)
+                {
+                    exists = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync((IQueryable<Loan>)loanQuery);
+                }
+                else
+                {
+                    exists = loanQuery.Any();
+                }
+                if(!exists)
+                {
+                    var loanNumber = "LN-" + req.Id[..8].ToUpperInvariant();
+                    await loanRepo.InsertAsync(new Loan
+                    {
+                        LoanRequestId = requestId,
+                        LoanNumber = loanNumber,
+                        FullName = req.FullName,
+                        Principal = req.Amount,
+                        InterestRate = 0m,
+                        TermMonths = 0,
+                        StartDate = DateTime.UtcNow.Date,
+                        Status = "ACTIVE",
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    });
+                    _logger.LogInformation("Created Loan record {LoanNumber} for request {RequestId}", loanNumber, requestId);
+                }
             }
-            else
+            catch(Exception ex)
             {
-                req.Status = LoanRequestStatus.Approved;
-                req.UpdatedAt = now;
+                _logger.LogError(ex, "Failed to create Loan record for request {RequestId}", requestId);
+                // Intentionally swallow so approval flow still succeeds; alternatively rethrow if strict consistency required
             }
         }
     await _uow.SaveChangesAsync();
-        return new DecisionResult(true, currentStage);
+        return new DecisionResult(true, currentStage, req.FullName);
     }
 
     public async Task<DecisionResult> RejectAsync(string requestId, DecisionDto dto)
@@ -147,8 +191,8 @@ public sealed class LoanRequestService : ILoanRequestService
                 }
             }
         }
-        await _uow.SaveChangesAsync();
-        return new DecisionResult(false, currentStage);
+    await _uow.SaveChangesAsync();
+    return new DecisionResult(false, currentStage, req.FullName);
     }
 
     public Task<LoanRequest?> GetAsync(string id) => _uow.LoanRequests.GetByIdAsync(id);
@@ -178,7 +222,7 @@ public sealed class LoanRequestService : ILoanRequestService
     }
 }
 
-public sealed record DecisionResult(bool Approved, string Stage);
+public sealed record DecisionResult(bool Approved, string Stage, string FullName);
 
 public sealed class LoanRequestSearchQuery
 {
